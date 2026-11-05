@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>מונה זמן</title>
+<style>
+  :root{--bg:#f4f5f7;--card:#fff;--text:#1d1f23;--muted:#6b7280;--danger:#dc2626;--line:#e5e7eb}
+  @media (prefers-color-scheme: dark){:root{--bg:#111318;--card:#1b1e25;--text:#eef0f3;--muted:#9aa1ad;--line:#2a2e37}}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Arial,sans-serif;padding:16px}
+  .card{max-width:520px;margin:0 auto;background:var(--card);border-radius:16px;padding:20px;box-shadow:0 1px 3px rgba(0,0,0,.08)}
+  h2{margin:0 0 12px;font-size:18px}
+  .title{width:100%;font-size:18px;font-weight:600;border:1px solid var(--line);border-radius:10px;padding:10px;background:transparent;color:var(--text);text-align:center}
+  .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:16px 0}
+  .unit{text-align:center;background:var(--bg);border-radius:12px;padding:10px 4px}
+  .num{font-size:30px;font-weight:700;font-variant-numeric:tabular-nums}
+  .lbl{font-size:13px;color:var(--muted)}
+  button{border:0;border-radius:12px;padding:14px;font-size:16px;font-weight:600;cursor:pointer;color:#fff;background:#6b7280}
+  #again{width:100%;background:var(--danger)}
+  #again.confirm{background:#991b1b}
+  button.small{padding:8px 14px;font-size:14px}
+  .info{margin-top:12px;font-size:15px;color:var(--muted);line-height:1.8}
+  .info b{color:var(--text)}
+  input.f{width:100%;border:1px solid var(--line);border-radius:10px;padding:8px;background:transparent;color:var(--text);font-size:15px;direction:ltr}
+  details{margin-top:12px} summary{cursor:pointer;color:var(--muted)}
+  #sync,#msg{font-size:13px;color:var(--muted);text-align:center;min-height:18px}
+</style>
+</head>
+<body>
+<div class="card">
+  <h2>⏳ מאז הפעם האחרונה ש…</h2>
+  <input id="title" class="title" placeholder="כתוב כאן מה (לדוגמה: שתיתי קולה)">
+  <div class="grid">
+    <div class="unit"><div class="num" id="d">0</div><div class="lbl">ימים</div></div>
+    <div class="unit"><div class="num" id="h">0</div><div class="lbl">שעות</div></div>
+    <div class="unit"><div class="num" id="m">0</div><div class="lbl">דקות</div></div>
+    <div class="unit"><div class="num" id="s">0</div><div class="lbl">שניות</div></div>
+  </div>
+  <button id="again">איפוס</button>
+  <div class="info">
+    🏆 שיא: <b id="record">—</b><br>
+    הפעם האחרונה: <b id="since">—</b>
+  </div>
+  <div id="sync"></div>
+  <details>
+    <summary>הגדרות</summary>
+    <div class="info">
+      חיבור לגיטהאב (פעם אחת בכל מכשיר):<br>
+      Repo: <input class="f" id="cfgRepo" placeholder="username/repo">
+      Token: <input class="f" id="cfgToken" type="password" placeholder="github_pat_...">
+      <button class="small" id="saveCfg">שמור חיבור</button>
+    </div>
+  </details>
+</div>
+<script>
+  const KEY = 'time-counter-v1', CFG = 'time-counter-cfg';
+  const load = (k, def) => { try { return Object.assign(def, JSON.parse(localStorage.getItem(k)) || {}); } catch(e){ return def; } };
+  const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch(e){} };
+
+  let st = load(KEY, {title:'', last: Date.now(), record: 0});
+  const save = () => store(KEY, {title: st.title, last: st.last, record: st.record});
+  save();
+
+  let guessRepo = '';
+  if (location.hostname.endsWith('github.io')) {
+    const owner = location.hostname.split('.')[0];
+    const repo = location.pathname.split('/')[1] || (owner + '.github.io');
+    guessRepo = owner + '/' + repo;
+  }
+  let cfg = load(CFG, {repo: guessRepo, token: ''});
+
+  const $ = id => document.getElementById(id);
+  const parts = ms => { const t = Math.max(0, Math.floor(ms/1000)); return {d:Math.floor(t/86400), h:Math.floor(t%86400/3600), m:Math.floor(t%3600/60), s:t%60}; };
+  const fmt = ms => { const p = parts(ms); return `${p.d} ימים, ${p.h} שעות, ${p.m} דקות, ${p.s} שניות`; };
+  const setSync = t => $('sync').textContent = t;
+  const flash = t => { $('msg').textContent = t; setTimeout(() => $('msg').textContent = '', 3000); };
+
+  // לחיצה ראשונה מבקשת אישור, שנייה מבצעת (בלי חלונות קופצים)
+  function twoTap(btn, label, confirmLabel, action){
+    let armed = null;
+    btn.onclick = () => {
+      if (armed) { clearTimeout(armed); armed = null; btn.textContent = label; btn.classList.remove('confirm'); action(); }
+      else { btn.textContent = confirmLabel; btn.classList.add('confirm');
+        armed = setTimeout(() => { armed = null; btn.textContent = label; btn.classList.remove('confirm'); }, 3000); }
+    };
+  }
+
+  const b64e = s => btoa(String.fromCharCode(...new TextEncoder().encode(s)));
+  const b64d = s => new TextDecoder().decode(Uint8Array.from(atob(s.replace(/\n/g,'')), c => c.charCodeAt(0)));
+
+  function api(method, body){
+    const headers = {'Accept':'application/vnd.github+json'};
+    if (cfg.token) headers.Authorization = 'Bearer ' + cfg.token;
+    return fetch(`https://api.github.com/repos/${cfg.repo}/contents/data.json`, {
+      method, headers, cache:'no-store', body: body ? JSON.stringify(body) : undefined
+    });
+  }
+
+  async function pull(){
+    if (!cfg.repo) return;
+    try {
+      const r = await api('GET');
+      if (!r.ok) return setSync('לא הצלחתי לקרוא מגיטהאב');
+      const d = JSON.parse(b64d((await r.json()).content));
+      if (d.last) { st.title = d.title || ''; st.last = d.last; st.record = d.record || 0; save(); }
+      $('title').value = st.title; tick();
+      setSync('✓ מסונכרן');
+    } catch(e){ setSync('אין חיבור'); }
+  }
+
+  async function push(){
+    if (!cfg.repo || !cfg.token) return;
+    setSync('שומר…');
+    try {
+      for (let i = 0; i < 3; i++) {
+        const g = await api('GET');
+        let sha, notifiedFor = null;
+        if (g.ok) { const j = await g.json(); sha = j.sha; try { notifiedFor = JSON.parse(b64d(j.content)).notifiedFor ?? null; } catch(e){} }
+        const data = {title: st.title, last: st.last, record: st.record, notifiedFor};
+        const r = await api('PUT', {message:'update', content: b64e(JSON.stringify(data, null, 2)), sha});
+        if (r.ok) return setSync('✓ נשמר');
+      }
+      setSync('שגיאה בשמירה – בדוק את ה-Token');
+    } catch(e){ setSync('אין חיבור – לא נשמר'); }
+  }
+
+  let titleTimer;
+  $('title').value = st.title;
+  $('title').oninput = e => { st.title = e.target.value; save(); clearTimeout(titleTimer); titleTimer = setTimeout(push, 1500); };
+
+  twoTap($('again'), 'איפוס', 'לחץ שוב לאישור', () => {
+    const now = Date.now();
+    st.record = Math.max(st.record, now - st.last);
+    st.last = now; save(); tick(); push();
+  });
+
+  $('cfgRepo').value = cfg.repo; $('cfgToken').value = cfg.token;
+  $('saveCfg').onclick = () => { cfg = {repo: $('cfgRepo').value.trim(), token: $('cfgToken').value.trim()}; store(CFG, cfg); pull(); };
+
+  function tick(){
+    const cur = Date.now() - st.last, p = parts(cur);
+    $('d').textContent = p.d; $('h').textContent = p.h; $('m').textContent = p.m; $('s').textContent = p.s;
+    const rec = Math.max(st.record, cur);
+    $('record').textContent = rec ? fmt(rec) + (st.record && cur > st.record ? ' (שבירת שיא!)' : '') : '—';
+    $('since').textContent = new Date(st.last).toLocaleString('he-IL');
+  }
+  tick(); setInterval(tick, 250);
+  pull();
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) pull(); });
+</script>
+</body>
+</html>
