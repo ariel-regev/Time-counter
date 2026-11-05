@@ -1,0 +1,37 @@
+name: בדיקת שיא
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  issues: write
+
+concurrency: record-check
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: c
+        run: python3 check.py
+
+      - if: steps.c.outputs.send == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BODY: ${{ steps.c.outputs.body }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          gh issue create --title "🏆 שברת שיא!" --body "$BODY
+
+          @$OWNER"
+          git config user.name "record-bot"
+          git config user.email "record-bot@users.noreply.github.com"
+          git add data.json
+          git commit -m "notified"
+          git pull --rebase
+          git push
